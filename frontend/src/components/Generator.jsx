@@ -26,6 +26,12 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  LinearProgress,
+  FormControlLabel,
+  Checkbox,
+  Radio,
+  RadioGroup,
+  FormLabel,
 } from '@mui/material'
 import {
   AutoAwesome as SparklesIcon,
@@ -33,6 +39,7 @@ import {
   AttachMoney as MoneyIcon,
   Close as CloseIcon,
   History as HistoryIcon,
+  ViewModule as BatchIcon,
 } from '@mui/icons-material'
 import axios from 'axios'
 import { socialMediaPresets } from '../data/socialMediaPresets'
@@ -63,6 +70,13 @@ function Generator() {
   
   // Azure Monthly Limit: Server-side protection
   const [azureCostStatus, setAzureCostStatus] = useState(null)
+  
+  // Batch Generation state
+  const [batchMode, setBatchMode] = useState(false)
+  const [batchType, setBatchType] = useState('styles') // 'styles', 'sizes', 'matrix'
+  const [batchResults, setBatchResults] = useState([])
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 })
+  const [batchLoading, setBatchLoading] = useState(false)
 
   // Load gallery from localStorage on mount
   useEffect(() => {
@@ -213,6 +227,161 @@ function Generator() {
   const handleResetSession = () => {
     setSessionCost(0)
     localStorage.setItem('imagegen-session-cost', '0')
+  }
+  
+  // ============================================
+  // BATCH GENERATION FUNCTIONS
+  // ============================================
+  
+  // Get batch configurations based on type
+  const getBatchConfigurations = () => {
+    const configs = []
+    
+    if (batchType === 'styles') {
+      // Generate with both styles (Vivid + Natural)
+      configs.push(
+        { size, quality, style: 'vivid', label: 'Vivid' },
+        { size, quality, style: 'natural', label: 'Natural' }
+      )
+    } else if (batchType === 'sizes') {
+      // Generate all sizes
+      configs.push(
+        { size: '1024x1024', quality, style, label: 'Cuadrado (1024x1024)' },
+        { size: '1792x1024', quality, style, label: 'Horizontal (1792x1024)' },
+        { size: '1024x1792', quality, style, label: 'Vertical (1024x1792)' }
+      )
+    } else if (batchType === 'matrix') {
+      // Full matrix: 2 styles × 3 sizes = 6 images
+      const styles = ['vivid', 'natural']
+      const sizes = [
+        { size: '1024x1024', label: 'Cuadrado' },
+        { size: '1792x1024', label: 'Horizontal' },
+        { size: '1024x1792', label: 'Vertical' }
+      ]
+      
+      styles.forEach(s => {
+        sizes.forEach(({ size: sz, label: sizeLabel }) => {
+          configs.push({
+            size: sz,
+            quality,
+            style: s,
+            label: `${s === 'vivid' ? 'Vivid' : 'Natural'} - ${sizeLabel}`
+          })
+        })
+      })
+    }
+    
+    return configs
+  }
+  
+  // Calculate total batch cost
+  const calculateBatchCost = () => {
+    const configs = getBatchConfigurations()
+    const costPerImage = quality === 'hd' ? 0.08 : 0.04
+    return {
+      count: configs.length,
+      total: configs.length * costPerImage,
+      perImage: costPerImage
+    }
+  }
+  
+  // Handle batch generation
+  const handleBatchGenerate = async () => {
+    if (!prompt.trim()) {
+      setError('Por favor ingresa un prompt')
+      return
+    }
+    
+    const batchCost = calculateBatchCost()
+    const configs = getBatchConfigurations()
+    
+    // Validate limits
+    if (imagesRemaining < configs.length) {
+      setError(`Batch requiere ${configs.length} generaciones pero solo quedan ${imagesRemaining} en demo portfolio.`)
+      return
+    }
+    
+    if (azureCostStatus && azureCostStatus.remaining < batchCost.total) {
+      setError(`Batch costaría ${batchCost.total.toFixed(2)} pero solo quedan ${azureCostStatus.remaining.toFixed(2)} en el límite mensual de Azure.`)
+      return
+    }
+    
+    setBatchLoading(true)
+    setError(null)
+    setBatchResults([])
+    setBatchProgress({ current: 0, total: configs.length })
+    
+    const results = []
+    let totalCost = 0
+    
+    try {
+      // Generate images sequentially
+      for (let i = 0; i < configs.length; i++) {
+        const config = configs[i]
+        setBatchProgress({ current: i + 1, total: configs.length })
+        
+        try {
+          const response = await axios.post('/api/generate', {
+            prompt,
+            size: config.size,
+            quality: config.quality,
+            style: config.style,
+          })
+          
+          const imageData = response.data.data
+          results.push({
+            ...imageData,
+            label: config.label,
+            config
+          })
+          
+          totalCost += imageData.cost
+          
+          // Update Azure cost status
+          if (response.data.cost_status) {
+            setAzureCostStatus(response.data.cost_status)
+          }
+          
+          // Add to gallery
+          const newGalleryItem = {
+            id: Date.now() + i,
+            ...imageData,
+            timestamp: new Date().toISOString(),
+            batchLabel: config.label
+          }
+          const updatedGallery = [newGalleryItem, ...gallery]
+          setGallery(updatedGallery)
+          localStorage.setItem('imagegen-gallery', JSON.stringify(updatedGallery))
+          
+        } catch (err) {
+          console.error(`Error generating image ${i + 1}:`, err)
+          results.push({
+            error: err.response?.data?.error || 'Error al generar',
+            label: config.label,
+            config
+          })
+        }
+      }
+      
+      // Update session cost
+      const newSessionCost = sessionCost + totalCost
+      setSessionCost(newSessionCost)
+      localStorage.setItem('imagegen-session-cost', newSessionCost.toString())
+      
+      // Update remaining images
+      const successfulGenerations = results.filter(r => !r.error).length
+      const newRemaining = imagesRemaining - successfulGenerations
+      setImagesRemaining(newRemaining)
+      localStorage.setItem('imagegen-remaining', newRemaining.toString())
+      
+      setBatchResults(results)
+      
+    } catch (err) {
+      setError('Error en generación batch: ' + err.message)
+    } finally {
+      setBatchLoading(false)
+      setBatchProgress({ current: 0, total: 0 })
+    }
   }
 
   return (
@@ -394,8 +563,105 @@ function Generator() {
                   placeholder="Una ciudad futurista al atardecer con autos voladores y luces de neón..."
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  sx={{ mb: 3 }}
+                  sx={{ mb: 2 }}
                 />
+
+                {/* Batch Mode Toggle */}
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={batchMode}
+                      onChange={(e) => {
+                        setBatchMode(e.target.checked)
+                        if (!e.target.checked) {
+                          setBatchResults([])
+                        }
+                      }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                        🎭 Modo Batch Generation
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Genera múltiples variaciones para comparar
+                      </Typography>
+                    </Box>
+                  }
+                  sx={{ mb: 2 }}
+                />
+
+                {/* Batch Options */}
+                {batchMode && (
+                  <Paper elevation={2} sx={{ p: 3, mb: 3, bgcolor: '#f5f5f5' }}>
+                    <FormControl component="fieldset">
+                      <FormLabel component="legend" sx={{ fontWeight: 600, mb: 2 }}>
+                        Tipo de Batch
+                      </FormLabel>
+                      <RadioGroup
+                        value={batchType}
+                        onChange={(e) => setBatchType(e.target.value)}
+                      >
+                        <FormControlLabel
+                          value="styles"
+                          control={<Radio />}
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                Comparar Estilos (2 imágenes)
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Vivid + Natural con mismos parámetros
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                        <FormControlLabel
+                          value="sizes"
+                          control={<Radio />}
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                Probar Tamaños (3 imágenes)
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Cuadrado + Horizontal + Vertical
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                        <FormControlLabel
+                          value="matrix"
+                          control={<Radio />}
+                          label={
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                Matriz Completa (6 imágenes)
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                2 estilos × 3 tamaños = Todas las combinaciones
+                              </Typography>
+                            </Box>
+                          }
+                        />
+                      </RadioGroup>
+                    </FormControl>
+                    
+                    {/* Batch Cost */}
+                    {(() => {
+                      const batchCost = calculateBatchCost()
+                      return (
+                        <Alert severity="info" icon={<MoneyIcon />} sx={{ mt: 2 }}>
+                          <Typography variant="body2">
+                            <strong>Generará {batchCost.count} imágenes</strong> - 
+                            Costo total: <strong>${batchCost.total.toFixed(2)} USD</strong>
+                          </Typography>
+                        </Alert>
+                      )
+                    })()}
+                  </Paper>
+                )}
 
                 {/* Parameters Grid */}
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2, mb: 3 }}>
@@ -437,21 +703,56 @@ function Generator() {
                   </Alert>
                 )}
 
-                {/* Generate Button */}
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
-                  onClick={handleGenerate}
-                  disabled={loading || imagesRemaining === 0 || (azureCostStatus && azureCostStatus.is_limited)}
-                  sx={{ py: 1.5 }}
-                >
-                  {loading ? 'Generando...' : 
-                   (azureCostStatus && azureCostStatus.is_limited) ? 'Límite Azure Alcanzado' :
-                   imagesRemaining === 0 ? 'Límite Alcanzado' : 
-                   'Generar Imagen'}
-                </Button>
+                {/* Generate Button (Single or Batch) */}
+                {batchMode ? (
+                  <>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      startIcon={batchLoading ? <CircularProgress size={20} color="inherit" /> : <BatchIcon />}
+                      onClick={handleBatchGenerate}
+                      disabled={batchLoading || imagesRemaining === 0 || (azureCostStatus && azureCostStatus.is_limited)}
+                      sx={{ py: 1.5 }}
+                    >
+                      {batchLoading 
+                        ? `Generando ${batchProgress.current}/${batchProgress.total}...`
+                        : (azureCostStatus && azureCostStatus.is_limited) 
+                          ? 'Límite Azure Alcanzado'
+                          : imagesRemaining === 0 
+                            ? 'Límite Alcanzado'
+                            : 'Generar Batch'}
+                    </Button>
+                    
+                    {/* Batch Progress Bar */}
+                    {batchLoading && (
+                      <Box sx={{ mt: 2 }}>
+                        <LinearProgress 
+                          variant="determinate" 
+                          value={(batchProgress.current / batchProgress.total) * 100} 
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                          Generando imagen {batchProgress.current} de {batchProgress.total}
+                        </Typography>
+                      </Box>
+                    )}
+                  </>
+                ) : (
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    size="large"
+                    startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
+                    onClick={handleGenerate}
+                    disabled={loading || imagesRemaining === 0 || (azureCostStatus && azureCostStatus.is_limited)}
+                    sx={{ py: 1.5 }}
+                  >
+                    {loading ? 'Generando...' : 
+                     (azureCostStatus && azureCostStatus.is_limited) ? 'Límite Azure Alcanzado' :
+                     imagesRemaining === 0 ? 'Límite Alcanzado' : 
+                     'Generar Imagen'}
+                  </Button>
+                )}
                 
                 {imagesRemaining === 0 && (
                   <Alert severity="info" sx={{ mt: 2 }}>
@@ -627,7 +928,7 @@ function Generator() {
 
         {/* Gallery Section */}
         {gallery.length > 0 && (
-          <Paper elevation={3} sx={{ p: 4 }}>
+          <Paper elevation={3} sx={{ p: 4, mb: 4 }}>
             <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <HistoryIcon />
               Galería de Imágenes ({gallery.length})
@@ -653,7 +954,7 @@ function Generator() {
                       </Typography>
                       <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
                         <Chip label={item.parameters.size} size="small" />
-                        <Chip label={`$${item.cost}`} size="small" color="success" />
+                        <Chip label={`${item.cost}`} size="small" color="success" />
                       </Stack>
                       <Button
                         size="small"
@@ -668,6 +969,71 @@ function Generator() {
                 </Grid>
               ))}
             </Grid>
+          </Paper>
+        )}
+
+        {/* Batch Results Grid */}
+        {batchResults.length > 0 && (
+          <Paper elevation={3} sx={{ p: 4, mb: 4 }}>
+            <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BatchIcon />
+              Resultados de Batch Generation ({batchResults.length})
+            </Typography>
+            <Typography variant="body2" color="text.secondary" paragraph>
+              Compara las variaciones generadas lado a lado
+            </Typography>
+
+            <Grid container spacing={2}>
+              {batchResults.map((result, index) => (
+                <Grid item xs={12} md={batchType === 'styles' ? 6 : 4} key={index}>
+                  <Card>
+                    {!result.error ? (
+                      <>
+                        <CardMedia
+                          component="img"
+                          image={result.url}
+                          alt={result.label}
+                          sx={{ height: 300, objectFit: 'cover' }}
+                        />
+                        <CardContent>
+                          <Chip 
+                            label={result.label} 
+                            color="primary" 
+                            size="small" 
+                            sx={{ mb: 1 }}
+                          />
+                          <Typography variant="caption" display="block" color="text.secondary" noWrap>
+                            {result.original_prompt}
+                          </Typography>
+                          <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                            <Chip label={result.parameters.size} size="small" />
+                            <Chip label={result.parameters.quality} size="small" color="success" />
+                            <Chip label={result.parameters.style} size="small" color="secondary" />
+                            <Chip label={`${result.cost}`} size="small" color="info" />
+                          </Stack>
+                        </CardContent>
+                      </>
+                    ) : (
+                      <CardContent>
+                        <Chip label={result.label} color="error" size="small" sx={{ mb: 1 }} />
+                        <Typography variant="body2" color="error">
+                          {result.error}
+                        </Typography>
+                      </CardContent>
+                    )}
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+            
+            <Button 
+              variant="outlined" 
+              fullWidth 
+              sx={{ mt: 3 }}
+              onClick={() => setBatchResults([])}
+            >
+              Limpiar Resultados
+            </Button>
           </Paper>
         )}
       </Container>
