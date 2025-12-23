@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Fondo azul Material Design -->
+  <circle cx="50" cy="50" r="48" fill="#1976d2"/>
+  
+  <!-- Ícono de imagen/galería en blanco -->
+  <g fill="white">
+    <!-- Marco exterior -->
+    <rect x="25" y="30" width="50" height="40" rx="3" fill="none" stroke="white" stroke-width="4"/>
+    
+    <!-- Montañas/imagen -->
+    <path d="M 30 60 L 42 45 L 54 55 L 66 40 L 70 50 L 70 65 L 30 65 Z" fill="white" opacity="0.9"/>
+    
+    <!-- Sol/círculo -->
+    <circle cx="60" cy="40" r="5" fill="white" opacity="0.9"/>
+    
+    <!-- Sparkle AI (estrella) -->
+    <path d="M 75 25 L 77 30 L 82 28 L 78 32 L 80 37 L 75 34 L 70 37 L 72 32 L 68 28 L 73 30 Z" 
+          fill="#FFD700" stroke="white" stroke-width="1"/>
+  </g>
+</svg>
