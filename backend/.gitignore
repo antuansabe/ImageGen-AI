@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# Cost tracking (generated at runtime, should not be committed)
+cost_tracker.json
+
 # Python
 __pycache__/
 *.py[cod]

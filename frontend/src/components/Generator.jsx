@@ -60,6 +60,9 @@ function Generator() {
   // However, it's sufficient for CV/portfolio use case where visitors are recruiters/professionals.
   // For production with payment, implement server-side rate limiting with IP/user tracking.
   const [imagesRemaining, setImagesRemaining] = useState(10)
+  
+  // Azure Monthly Limit: Server-side protection
+  const [azureCostStatus, setAzureCostStatus] = useState(null)
 
   // Load gallery from localStorage on mount
   useEffect(() => {
@@ -80,7 +83,20 @@ function Generator() {
     } else {
       localStorage.setItem('imagegen-remaining', '10')
     }
+    
+    // Load Azure cost status
+    fetchAzureCostStatus()
   }, [])
+  
+  // Fetch Azure monthly cost status from backend
+  const fetchAzureCostStatus = async () => {
+    try {
+      const response = await axios.get('/api/cost-status')
+      setAzureCostStatus(response.data)
+    } catch (error) {
+      console.error('Error fetching Azure cost status:', error)
+    }
+  }
 
   // Calculate cost when quality changes
   const handleQualityChange = (newQuality) => {
@@ -124,6 +140,11 @@ function Generator() {
 
       const imageData = response.data.data
       setGeneratedImage(imageData)
+      
+      // Update Azure cost status if provided
+      if (response.data.cost_status) {
+        setAzureCostStatus(response.data.cost_status)
+      }
 
       // Add to gallery
       const newGalleryItem = {
@@ -261,6 +282,30 @@ function Generator() {
                 </Stack>
               </CardContent>
             </Card>
+            
+            {/* Azure Monthly Limit Status */}
+            {azureCostStatus && (
+              <Card sx={{ 
+                bgcolor: azureCostStatus.is_limited ? '#ffebee' : azureCostStatus.percentage > 75 ? '#fff3e0' : '#e8f5e9' 
+              }}>
+                <CardContent sx={{ py: 1, px: 3 }}>
+                  <Stack direction="row" spacing={2} alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      Azure Límite Mensual:
+                    </Typography>
+                    <Typography 
+                      variant="h6" 
+                      sx={{ 
+                        fontWeight: 700,
+                        color: azureCostStatus.is_limited ? 'error.main' : azureCostStatus.percentage > 75 ? 'warning.main' : 'success.main'
+                      }}
+                    >
+                      ${azureCostStatus.remaining.toFixed(2)} / ${azureCostStatus.limit.toFixed(2)} USD
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
           </Stack>
 
           {/* Limit Reached Warning */}
@@ -284,6 +329,30 @@ function Generator() {
               >
                 Ver LinkedIn
               </Button>
+            </Alert>
+          )}
+          
+          {/* Azure Monthly Limit Reached Warning */}
+          {azureCostStatus && azureCostStatus.is_limited && (
+            <Alert severity="error" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
+              <Typography variant="body1" gutterBottom sx={{ fontWeight: 600 }}>
+                🚫 Límite Mensual de Azure Alcanzado
+              </Typography>
+              <Typography variant="body2" paragraph>
+                El servicio ha alcanzado el límite de protección de ${azureCostStatus.limit.toFixed(2)} USD para este mes.
+              </Typography>
+              <Typography variant="body2">
+                El servicio se restablecerá automáticamente el próximo mes. Esta protección evita gastos inesperados.
+              </Typography>
+            </Alert>
+          )}
+          
+          {/* Azure Monthly Limit Warning (>75%) */}
+          {azureCostStatus && !azureCostStatus.is_limited && azureCostStatus.percentage > 75 && (
+            <Alert severity="warning" sx={{ mt: 2, maxWidth: 600, mx: 'auto' }}>
+              <Typography variant="body2">
+                ⚠️ El límite mensual de Azure está al {azureCostStatus.percentage.toFixed(0)}%. Quedan ${azureCostStatus.remaining.toFixed(2)} USD disponibles este mes.
+              </Typography>
             </Alert>
           )}
         </Box>
@@ -375,10 +444,13 @@ function Generator() {
                   size="large"
                   startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SparklesIcon />}
                   onClick={handleGenerate}
-                  disabled={loading || imagesRemaining === 0}
+                  disabled={loading || imagesRemaining === 0 || (azureCostStatus && azureCostStatus.is_limited)}
                   sx={{ py: 1.5 }}
                 >
-                  {loading ? 'Generando...' : imagesRemaining === 0 ? 'Límite Alcanzado' : 'Generar Imagen'}
+                  {loading ? 'Generando...' : 
+                   (azureCostStatus && azureCostStatus.is_limited) ? 'Límite Azure Alcanzado' :
+                   imagesRemaining === 0 ? 'Límite Alcanzado' : 
+                   'Generar Imagen'}
                 </Button>
                 
                 {imagesRemaining === 0 && (
