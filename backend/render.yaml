@@ -1,0 +1,24 @@
+# Render Blueprint para ImageGen.AI Backend
+# Este archivo configura el deployment automático en Render
+
+services:
+  - type: web
+    name: imagegen-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.0
+      - key: AZURE_OPENAI_ENDPOINT
+        sync: false  # Set manually in Render dashboard
+      - key: AZURE_OPENAI_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: AZURE_OPENAI_DEPLOYMENT_NAME
+        value: dall-e-3
+      - key: AZURE_OPENAI_API_VERSION
+        value: 2024-02-01
+      - key: FRONTEND_URL
+        sync: false  # Set to your Vercel URL

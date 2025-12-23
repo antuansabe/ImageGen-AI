@@ -13,8 +13,18 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configure CORS
-CORS(app, origins=[os.getenv('FRONTEND_URL', 'http://localhost:5173')])
+# Configure CORS for production
+# Allow requests from Vercel deployments and localhost
+allowed_origins = [
+    os.getenv('FRONTEND_URL', 'http://localhost:5173'),
+    'http://localhost:5173',
+    'https://*.vercel.app',  # All Vercel preview deployments
+]
+
+CORS(app, 
+     origins=allowed_origins,
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'])
 
 # Initialize Azure OpenAI client
 client = AzureOpenAI(
@@ -278,4 +288,6 @@ def calculate_cost():
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
-    app.run(debug=True, port=port)
+    # En producción, Gunicorn maneja esto
+    # Este bloque es solo para desarrollo local
+    app.run(host='0.0.0.0', debug=os.getenv('FLASK_ENV') == 'development', port=port)
