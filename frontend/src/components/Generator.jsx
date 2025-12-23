@@ -41,7 +41,7 @@ import {
   History as HistoryIcon,
   ViewModule as BatchIcon,
 } from '@mui/icons-material'
-import axios from 'axios'
+import axios from '../api/axios'
 import { socialMediaPresets } from '../data/socialMediaPresets'
 import { promptLibrary, getAllPrompts } from '../data/promptLibrary'
 
