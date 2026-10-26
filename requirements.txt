@@ -3,4 +3,4 @@ flask-cors==6.0.2
 openai==1.57.4
 python-dotenv==1.2.2
 requests==2.33.0
-gunicorn==23.0.0
+gunicorn==26.2.0
