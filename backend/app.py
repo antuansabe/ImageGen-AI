@@ -1,3 +1,4 @@
+from werkzeug.exceptions import RequestEntityTooLarge
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import AzureOpenAI
@@ -12,13 +13,14 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024
 
 # Configure CORS for production
 # Allow requests from Vercel deployments and localhost
 allowed_origins = [
-    os.getenv('FRONTEND_URL', 'http://localhost:5173'),
+    *[origin.strip() for origin in os.getenv('FRONTEND_URL', 'http://localhost:5173').split(',') if origin.strip()],
     'http://localhost:5173',
-    'https://*.vercel.app',  # All Vercel preview deployments
+    'https://image-gen-ai-seven.vercel.app',
 ]
 
 CORS(app, 
@@ -72,6 +74,8 @@ def get_monthly_cost():
                 return data.get('total', 0.0)
         else:
             return 0.0
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         app.logger.error(f'Error reading cost tracker: {str(e)}')
         return 0.0
@@ -108,6 +112,8 @@ def add_cost(cost):
         
         app.logger.info(f'Cost added: ${cost:.2f}. Monthly total: ${data["total"]:.2f}')
         
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         app.logger.error(f'Error saving cost: {str(e)}')
 
@@ -153,6 +159,8 @@ def cost_status():
     try:
         status = get_cost_status()
         return jsonify(status), 200
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -253,6 +261,8 @@ def generate_image():
             'cost_status': get_cost_status()
         }), 200
         
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         app.logger.error(f'Error generando imagen: {str(e)}')
         return jsonify({
@@ -283,6 +293,8 @@ def calculate_cost():
             'currency': 'USD'
         }), 200
         
+    except RequestEntityTooLarge:
+        raise
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
